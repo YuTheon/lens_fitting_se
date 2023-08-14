@@ -49,7 +49,6 @@ class ImageAnnotator:
         # Create a label
         self.label = tk.Label(root, text="Enter a number:")
         self.label.pack(side=tk.LEFT, padx=10)
-
         # Create an Entry widget for user input
         self.entry = tk.Entry(root)
         self.entry.pack(side=tk.LEFT, padx=10)
@@ -87,18 +86,13 @@ class ImageAnnotator:
     def load_image(self):
         image = Image.open(self.image_path)
         width, height = image.size
-
         # Resize the Canvas to match the image size
         canvas_width = int(width * self.zoom_factor)
         canvas_height = int(height * self.zoom_factor)
         self.image_canvas.config(width=canvas_width, height=canvas_height)
-
         image = image.resize((canvas_width, canvas_height), Image.ANTIALIAS)
-
-
         self.photo = ImageTk.PhotoImage(image)
         self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
-
 
     def zoom(self, event):
         if self.image_path:
@@ -116,7 +110,6 @@ class ImageAnnotator:
                 # 找到点在框框内，首先展示所有的边，点击一次后最近的边会变粗，最后用选中的曲线拟合椭圆（并且要用条件去限制）   
                 self.draw_choose_edge(x, y)   
                 point_id = self.image_canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill="green")  
-                
             else:
                 x, y = event.x, event.y
                 if len(self.annotated_points) == 2:
@@ -124,7 +117,6 @@ class ImageAnnotator:
                     return
                 point_id = self.image_canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill="red")
                 self.annotated_points.append((x, y, point_id))
-
                 if len(self.annotated_points) == 2:
                     self.draw_box()
 
@@ -195,7 +187,7 @@ class ImageAnnotator:
         self.find_edge_flag = True
         input_number = self.entry.get()
         # print(f'type {type(input_number)} value {input_number}')
-       # Find contours in the edge image
+        # Find contours in the edge image
         self.contours, _ = cv2.findContours(np.array(self.edges_image), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         # Select the first contour (you can change this index or use other criteria)
@@ -320,9 +312,6 @@ class ImageAnnotator:
     
     def find_oval(self):
         """oval model 可以像上面这样定义吗，但至少目前的这些函数在验证的过程也是不够准的"""
-        print(f'find oval {self.approx}')
-        print(f'find oval type {type(self.approx)}')
-        print(f'find oval shape {self.approx.shape}')
         x = np.array([pt[0, 0]  for pt in self.approx])
         y = np.array([pt[0, 1]  for pt in self.approx])
         x_min, x_max = np.min(x), np.max(x)
@@ -355,14 +344,6 @@ class ImageAnnotator:
         self.content_in_box(filtered_pts, -1)
 
     def content_in_box(self, pts, choose):
-        # filter pt that out of the figure
-        # original_image = copy.deepcopy(self.crop_img)
-        # cv2.drawContours(original_image, pts, choose, (0, 255, 0), 2)
-        # original_image = Image.fromarray(original_image)
-        # # Display the edge-detected image
-        # edges_photo = ImageTk.PhotoImage(original_image)
-        # self.image_canvas.create_image(self.canvas_x+self.box_left, self.canvas_y+self.box_top, anchor=tk.NW, image=edges_photo)
-        # self.image_canvas.image = edges_photo
         print(f'pts {pts.shape}')
         print(f'pt {pts}')
         for pt in pts:
