@@ -4,21 +4,13 @@ from PIL import Image, ImageTk
 import openpyxl
 import numpy as np
 import cv2
-import os
 import copy
 from scipy.special import comb
 from scipy.optimize import curve_fit
 from ellipse import LsqEllipse
-import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
+from PIL import Image, ImageGrab
 # from utils import bezier_curve, bernstein_poly
 
-"""README
-打开图片，在图像上选择最多两个点，点击保存后打开下一张图片。
-保存后会在excel文件中存入path以及两个点的横坐标，会自动将小的放前面。
-但是同一张图片多次保存会保存多个数据，需要注意。
-
-"""
 """
 TODO:需要用智能的算法去自动寻找晶状体上表面
 """
@@ -34,30 +26,21 @@ class ImageAnnotator:
         self.open_button = tk.Button(root, text="Open Image", command=self.open_image)
         self.open_button.pack(side=tk.LEFT, padx=10)
 
-        self.save_button = tk.Button(root, text="Save to Excel", command=self.save_to_excel)
-        self.save_button.pack(side=tk.LEFT, padx=10)
-
-        self.revo_button = tk.Button(root, text="withdraw a point", command=self.withdraw_point)
-        self.revo_button.pack(side=tk.LEFT, padx=10)
-
-        self.box_button = tk.Button(root, text="draw box", command=self.draw_box)
-        self.box_button.pack(side=tk.LEFT, padx=10)
-
         self.edge_button = tk.Button(root, text="find edge", command=self.find_edge)
         self.edge_button.pack(side=tk.LEFT, padx=10)
 
-        # Create a label
-        self.label = tk.Label(root, text="Enter a number:")
-        self.label.pack(side=tk.LEFT, padx=10)
         # Create an Entry widget for user input
         self.entry = tk.Entry(root)
-        self.entry.pack(side=tk.LEFT, padx=10)
 
         self.curv_button = tk.Button(root, text="fit curve", command=self.fit_curve)
         self.curv_button.pack(side=tk.LEFT, padx=10)
 
         self.oval_button = tk.Button(root, text="fit oval", command=self.find_oval2)
-        self.oval_button.pack()
+        self.oval_button.pack(side=tk.LEFT, padx=10)
+
+        # 创建保存按钮
+        self.save_button = tk.Button(root, text="save image", command=lambda: self.save_image())
+        self.save_button.pack(side=tk.LEFT, padx=10)
 
         self.image_path = None
         self.annotated_points = []
@@ -94,6 +77,18 @@ class ImageAnnotator:
         self.photo = ImageTk.PhotoImage(image)
         self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
 
+    def save_image(self):
+        # 获取画布上的内容
+        x = self.root.winfo_rootx() + self.image_canvas.winfo_x()+85
+        y = self.root.winfo_rooty() + self.image_canvas.winfo_y()+10
+        x1 = x + self.image_canvas.winfo_width()+267
+        y1 = y + self.image_canvas.winfo_height()+180
+        print(f'x {x} y {y} x1 {x1} y1 {y1}')
+        image = ImageGrab.grab(bbox=(x, y, x1, y1))
+
+        # 保存图像
+        image.save("canvas_image.png")
+
     def zoom(self, event):
         if self.image_path:
             if event.delta > 0:
@@ -112,6 +107,7 @@ class ImageAnnotator:
                 point_id = self.image_canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill="green")  
             else:
                 x, y = event.x, event.y
+                print(f'point {x} {y}')
                 if len(self.annotated_points) == 2:
                     messagebox.showinfo("Fail", "No exceed two points")
                     return
@@ -164,8 +160,9 @@ class ImageAnnotator:
         self.box_right = box_right
 
         # Read the image and convert to grayscale
-        self.relative_path = os.path.relpath(self.image_path, os.path.dirname(__file__))
-        image_toCrop = cv2.imread(self.relative_path)
+        # 因为中文路径打不开
+        image_toCrop = cv2.imdecode(np.fromfile(self.image_path,dtype=np.uint8),-1)
+
         image = image_toCrop[box_top:box_bottom, box_left:box_right]
         self.crop_img = copy.deepcopy(image)
         # Apply Canny edge detection
@@ -186,7 +183,6 @@ class ImageAnnotator:
     def find_edge(self):
         self.find_edge_flag = True
         input_number = self.entry.get()
-        # print(f'type {type(input_number)} value {input_number}')
         # Find contours in the edge image
         self.contours, _ = cv2.findContours(np.array(self.edges_image), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -268,7 +264,6 @@ class ImageAnnotator:
         xPoints, yPoints = points[:,0], points[:,1]
         bezier_out = []
         t = np.linspace(0.0, 1.0, nTimes)
-        # print(f'bernstein {(0, nPoints-1, t)}')
         # TypeError: bernstein_poly() takes 3 positional arguments but 4 were given
         # The default parameter self is added
         polynomial_array = np.array([self.bernstein_poly(i, nPoints-1, t) for i in range(0, nPoints)])
@@ -305,8 +300,6 @@ class ImageAnnotator:
     
     def oval_model(self, x, p1, p2, a, b, t):
         """ t is radian, sin use"""
-        # return ((x[0]-p1)*np.cos(t)+(x[1]-p2)*np.sin(t))**2 / a ** 2 + \
-        # (-(x[0]-p1)*np.sin(t)+(x[1]-p2)*np.cos(t))**2 / b ** 2 - 1
         return ((x[0]-p1)*np.sin(t)+(x[1]-p2)*np.cos(t))**2 / a ** 2 + \
         (-(x[0]-p1)*np.cos(t)+(x[1]-p2)*np.sin(t))**2 / b ** 2 - 1
     
@@ -356,31 +349,59 @@ class ImageAnnotator:
         x = np.array([pt[0, 0]  for pt in self.approx]) 
         y = np.array([pt[0, 1]  for pt in self.approx]) 
         x_t = list(zip(x, y))
-        x_s = [str(i) for i in x_t]
-        x_t_s = ";".join(x_s)
-        print(f'sample pts {x_t_s}')
+        # print sample pts
+        # x_s = [str(i) for i in x_t]
+        # x_t_s = ";".join(x_s)
+        # print(f'sample pts {x_t_s}')
         x_t = np.array(x_t)
         reg = LsqEllipse().fit(x_t)
         # TODO 得到的参数都是虚数，不知道为什么；但是这样没法控制参数
         p, a, b, t = reg.as_parameters()
         print(f'oval params p {p[0]:.3f},{p[1]:.3f} a {a:.3f} b {b:.3f} t {t:.3f}')
-        p, a, b, t = (abs(p[0]), abs(p[1])), abs(a), abs(b), abs(t)
+        p, a, b, t = (abs(p[0])+30, abs(p[1])), abs(a)+150, abs(b)+170, abs(t) + 0.17
         print(f'oval params p {p[0]:.3f},{p[1]:.3f} a {a:.3f} b {b:.3f} t {t:.3f}')
 
         theta = np.linspace(0, 2*np.pi, 200)
         x = p[0] + a * np.cos(theta) 
         y = p[1] + b * np.sin(theta) 
         x = x * np.cos(t) - y * np.sin(t) + self.box_left + (self.box_right - self.box_left) / 2
-        y = x * np.sin(t) + y * np.cos(t) + self.box_top #+ (self.box_bottom - self.box_top) / 2
+        y = x * np.sin(t) + y * np.cos(t) + self.box_top + (self.box_bottom - self.box_top) - 33
 
-        x_t = np.array(list(zip(x, y)))
-        # print(f'x, y {x_t}')
+        print(f'arc {x_t.shape}')
+
+        oval = np.array(list(zip(x, y)))
+        print(f'oval {oval.shape}')
+        adjust_value_y = self.adjust_y(x_t, oval)
         
+        print(f'adjust y value {adjust_value_y}')
+        y -= adjust_value_y
         for i in range(200):
             self.image_canvas.create_oval(x[i]-3, y[i]-3, x[i]+3, y[i]+3, fill="green")  
-            # self.image_canvas.create_oval(x[i] - 3, y[i] - 3, x[i] + 3, y[i] + 3, fill="green")  
         
         self.image_canvas.create_oval(self.box_left-5, self.box_top-5, self.box_left+5, self.box_top+5, fill="red")
+
+    def adjust_y(self, arc, ellipse):
+        """arc:np-num*2*1, ellpise:num*2*1 
+            compute the aveg min distance
+        """
+        # random_indices = np.random.choice(arc.shape[0], 100, replace=False)
+        n = arc.shape[0]
+
+        min_y_distances = []
+
+        for idx in range(n):
+            # 选取第一个 ndarray 的点
+            point1 = arc[idx]
+
+            # 计算到第二个 ndarray 中所有点的 y 方向距离
+            y_distance = np.min(ellipse[:, 1] - point1[1]-self.box_top)
+
+            # 选择最小距离
+            min_y_distances.append(y_distance)
+
+        min_y_distances = np.array(min_y_distances)
+        return np.mean(min_y_distances)
+
 
 
 
