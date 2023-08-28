@@ -13,6 +13,10 @@ from PIL import Image, ImageGrab
 
 """
 TODO:需要用智能的算法去自动寻找晶状体上表面
+重构：
+- 将相关的函数放在一起
+- 将零散的函数放到另一个文件里
+- 分成结构化
 """
 
 class ImageAnnotator:
@@ -53,11 +57,9 @@ class ImageAnnotator:
         self.image_canvas.bind("<Button-1>", self.annotate_point)
         self.image_canvas.bind("<MouseWheel>", self.zoom)
 
-    def withdraw_point(self):
-        pt_id = self.annotated_points[-1][-1]
-        self.image_canvas.delete(pt_id)
-        self.annotated_points = self.annotated_points[:-1]
-
+    """
+    打开保存图像等操作，以及绘制标注点、放大缩小。
+    """
     def open_image(self):
         self.find_edge_flag = False
         self.connect_edges = set()
@@ -83,7 +85,6 @@ class ImageAnnotator:
         y = self.root.winfo_rooty() + self.image_canvas.winfo_y()+10
         x1 = x + self.image_canvas.winfo_width()+267
         y1 = y + self.image_canvas.winfo_height()+180
-        print(f'x {x} y {y} x1 {x1} y1 {y1}')
         image = ImageGrab.grab(bbox=(x, y, x1, y1))
 
         # 保存图像
@@ -116,35 +117,40 @@ class ImageAnnotator:
                 if len(self.annotated_points) == 2:
                     self.draw_box()
 
-    def draw_choose_edge(self, x, y):
-        print(f'pt {x} {y}, box {self.box_left} {self.box_top}')
-        # as my contours are just lines, pointPolygonTest would think they were inside the polygon
-        # Reduce some efficiency by calculating the distance to determine which one is close
-        near, near_value = 0, 10000000
-        for i in range(len(self.contours)):
-            res = cv2.pointPolygonTest(self.contours[i], (x-self.box_left, y-self.box_top), measureDist=True)
-            if abs(res) < near_value:
-                near = i
-                near_value = abs(res)
-            # print(f'contour {i} = {res} near {near}')
+    """
+    基本没用这个函数
+    """
+    def save_to_excel(self):
+        # 将标注出的数据点保存到excel文件里，对同一名字可进行追加数据。
+        if self.image_path and self.annotated_points:
+            excel_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx")])
+            if excel_path:
+                try:
+                    wb = openpyxl.load_workbook(excel_path)
+                    ws = wb.active
+                except FileNotFoundError:
+                    wb = openpyxl.Workbook()
+                    ws = wb.active
+                    ws.append(["Image Path", "X1", "Y1", "X2", "Y2"])
+                
+                x1, y1, id = self.annotated_points[0]
+                x2, y2, id = self.annotated_points[1]
+                pt_min, pt_max = (x1, y1), (x2, y2)
 
-        self.connect_edges.add(near)
-        original_image = copy.deepcopy(self.crop_img)
+                if x1 > x2:
+                    pt_min = (x2, y2)
+                    pt_max = (x1, y1)
 
-        for i in range(len(self.contours)):
-            if i in self.connect_edges:
-                cv2.drawContours(original_image, self.contours, i, (255, 200, 0), 2)
-            else:
-                cv2.drawContours(original_image, self.contours, i, (255, 0, 0), 1)
+                ws.append([self.relative_path, pt_min[0],pt_min[1], pt_max[0], pt_max[1]])
 
-        original_image = Image.fromarray(original_image)
-        # Display the edge-detected image
-        edges_photo = ImageTk.PhotoImage(original_image)
-        self.image_canvas.create_image(self.canvas_x+self.box_left, self.canvas_y+self.box_top, anchor=tk.NW, image=edges_photo)
-        self.image_canvas.image = edges_photo
+                wb.save(excel_path)
+                messagebox.showinfo("Success", "Data saved to Excel file.")
 
-
+    """
+    拟合前的系列操作，画出边框、边缘检测、选择边缘、拟合曲线。
+    """
     def draw_box(self):
+        # 画出两个点选中的方框，并对图像内进行边缘检测
         x1, y1, _ = self.annotated_points[0]
         x2, y2, _ = self.annotated_points[1]
         self.image_canvas.create_rectangle(x1, y1, x2, y2, outline="blue")
@@ -179,8 +185,9 @@ class ImageAnnotator:
         # Display the edge-detected image
         self.image_canvas.create_image(self.canvas_x + box_left, self.canvas_y + box_top, anchor=tk.NW, image=self.edges_photo)
         self.image_canvas.image = self.edges_photo
-
+        
     def find_edge(self):
+        # 对检测出来的边缘提取并绘制在原图上
         self.find_edge_flag = True
         input_number = self.entry.get()
         # Find contours in the edge image
@@ -215,32 +222,36 @@ class ImageAnnotator:
         self.image_canvas.create_image(self.canvas_x+self.box_left, self.canvas_y+self.box_top, anchor=tk.NW, image=edges_photo)
         self.image_canvas.image = edges_photo
 
+    def draw_choose_edge(self, x, y):
+        # 标出鼠标选中的边
+        # as my contours are just lines, pointPolygonTest would think they were inside the polygon
+        # Reduce some efficiency by calculating the distance to determine which one is close
+        near, near_value = 0, 10000000
+        for i in range(len(self.contours)):
+            res = cv2.pointPolygonTest(self.contours[i], (x-self.box_left, y-self.box_top), measureDist=True)
+            if abs(res) < near_value:
+                near = i
+                near_value = abs(res)
 
-    def save_to_excel(self):
-        if self.image_path and self.annotated_points:
-            excel_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Files", "*.xlsx")])
-            if excel_path:
-                try:
-                    wb = openpyxl.load_workbook(excel_path)
-                    ws = wb.active
-                except FileNotFoundError:
-                    wb = openpyxl.Workbook()
-                    ws = wb.active
-                    ws.append(["Image Path", "X1", "Y1", "X2", "Y2"])
-                
-                x1, y1, id = self.annotated_points[0]
-                x2, y2, id = self.annotated_points[1]
-                pt_min, pt_max = (x1, y1), (x2, y2)
+        self.connect_edges.add(near)
+        original_image = copy.deepcopy(self.crop_img)
+        # 选中的加粗，其余的正常绘制
+        for i in range(len(self.contours)):
+            if i in self.connect_edges:
+                cv2.drawContours(original_image, self.contours, i, (255, 200, 0), 2)
+            else:
+                cv2.drawContours(original_image, self.contours, i, (255, 0, 0), 1)
 
-                if x1 > x2:
-                    pt_min = (x2, y2)
-                    pt_max = (x1, y1)
+        original_image = Image.fromarray(original_image)
+        # Display the edge-detected image
+        edges_photo = ImageTk.PhotoImage(original_image)
+        self.image_canvas.create_image(self.canvas_x+self.box_left, self.canvas_y+self.box_top, anchor=tk.NW, image=edges_photo)
+        self.image_canvas.image = edges_photo
 
-                ws.append([self.relative_path, pt_min[0],pt_min[1], pt_max[0], pt_max[1]])
 
-                wb.save(excel_path)
-                messagebox.showinfo("Success", "Data saved to Excel file.")
-
+    """
+    对选中的边进行曲线拟合
+    """
     def bernstein_poly(self, i, n, t):
         """
         The Bernstein polynomial of n, i as a function of t
@@ -277,10 +288,7 @@ class ImageAnnotator:
         return bezier_out
 
     def fit_curve(self):
-
-        """
-        Add the selected curves and then try to fit the curves
-        """
+        # 对选中的边进行曲线拟合，与上面的bezier，bernstein相联系。
         selected_curve = None
         for cont in self.connect_edges:
             if selected_curve is None:
@@ -297,14 +305,19 @@ class ImageAnnotator:
         edges_photo = ImageTk.PhotoImage(original_image)
         self.image_canvas.create_image(self.canvas_x+self.box_left, self.canvas_y+self.box_top, anchor=tk.NW, image=edges_photo)
         self.image_canvas.image = edges_photo
+
+    """
+    迭代法拟合椭圆
+    """
     
     def oval_model(self, x, p1, p2, a, b, t):
-        """ t is radian, sin use"""
+        # 椭圆方程，t is radian, sin use
         return ((x[0]-p1)*np.sin(t)+(x[1]-p2)*np.cos(t))**2 / a ** 2 + \
         (-(x[0]-p1)*np.cos(t)+(x[1]-p2)*np.sin(t))**2 / b ** 2 - 1
     
     def find_oval(self):
-        """oval model 可以像上面这样定义吗，但至少目前的这些函数在验证的过程也是不够准的"""
+        # 迭代优化的椭圆拟合方法。
+        # oval model 可以像上面这样定义吗，但至少目前的这些函数在验证的过程也是不够准的
         x = np.array([pt[0, 0]  for pt in self.approx])
         y = np.array([pt[0, 1]  for pt in self.approx])
         x_min, x_max = np.min(x), np.max(x)
@@ -332,11 +345,13 @@ class ImageAnnotator:
         # x = (a*np.cos(t)-b*np.sin(t)+p0*np.cos(theta)-np.sin(theta)*np.tan(theta)*p0) / (np.cos(theta) - np.sin(theta) * np.tan(theta))
         # y = (b*np.sin(t) - (x - p0)*np.sin(theta)) / np.cos(theta) + p1
         pts = np.array(list(zip(x, y)))
+        # 下面这步是想实现，只绘制在画布内的点
         conditions = (pts[:, 0] < self.image_canvas.winfo_width()) & (pts[:, 1] < self.image_canvas.winfo_height())
         filtered_pts = pts[conditions]
         self.content_in_box(filtered_pts, -1)
 
     def content_in_box(self, pts, choose):
+        # TODO 有什么用？
         print(f'pts {pts.shape}')
         print(f'pt {pts}')
         for pt in pts:
@@ -345,14 +360,14 @@ class ImageAnnotator:
             self.image_canvas.create_line(x, y, x, y, fill="green")  
         self.image_canvas.create_oval(0, 0, 5, 5, fill="red")
     
+    """
+    计算法获得椭圆，目前使用的，计算获得的椭圆交给上方进行进一步拟合
+    """
     def find_oval2(self):
+        # 利用论文的算法，直接计算得到椭圆
         x = np.array([pt[0, 0]  for pt in self.approx]) 
         y = np.array([pt[0, 1]  for pt in self.approx]) 
         x_t = list(zip(x, y))
-        # print sample pts
-        # x_s = [str(i) for i in x_t]
-        # x_t_s = ";".join(x_s)
-        # print(f'sample pts {x_t_s}')
         x_t = np.array(x_t)
         reg = LsqEllipse().fit(x_t)
         # TODO 得到的参数都是虚数，不知道为什么；但是这样没法控制参数
@@ -381,6 +396,7 @@ class ImageAnnotator:
         self.image_canvas.create_oval(self.box_left-5, self.box_top-5, self.box_left+5, self.box_top+5, fill="red")
 
     def adjust_y(self, arc, ellipse):
+        # 对获得的椭圆进行微调，与图像拟合（为什么会拟合不上）
         """arc:np-num*2*1, ellpise:num*2*1 
             compute the aveg min distance
         """
