@@ -46,6 +46,15 @@ class ImageAnnotator:
         self.save_button = tk.Button(root, text="save image", command=lambda: self.save_image())
         self.save_button.pack(side=tk.LEFT, padx=10)
 
+        # 重画椭圆
+        self.redr_button = tk.Button(root, text="redraw oval", command=lambda: self.redraw())
+        self.redr_button.pack(side=tk.LEFT, padx=10)
+        self.label = tk.Label(root, text="Enter deta (p0, p1, a, b, t):")
+        self.label.pack(side=tk.LEFT, padx=10)
+        # Create an Entry widget for user input
+        self.deta = tk.Entry(root)
+        self.deta.pack(side=tk.LEFT, padx=10)
+
         self.image_path = None
         self.annotated_points = []
         self.connect_edges = []
@@ -372,28 +381,31 @@ class ImageAnnotator:
         reg = LsqEllipse().fit(x_t)
         # TODO 得到的参数都是虚数，不知道为什么；但是这样没法控制参数
         p, a, b, t = reg.as_parameters()
-        print(f'oval params p {p[0]:.3f},{p[1]:.3f} a {a:.3f} b {b:.3f} t {t:.3f}')
+        # print(f'oval params p {p[0]:.3f},{p[1]:.3f} a {a:.3f} b {b:.3f} t {t:.3f}')
         p, a, b, t = (abs(p[0])+30, abs(p[1])), abs(a)+150, abs(b)+170, abs(t) + 0.17
         print(f'oval params p {p[0]:.3f},{p[1]:.3f} a {a:.3f} b {b:.3f} t {t:.3f}')
-
-        theta = np.linspace(0, 2*np.pi, 200)
-        x = p[0] + a * np.cos(theta) 
-        y = p[1] + b * np.sin(theta) 
-        x = x * np.cos(t) - y * np.sin(t) + self.box_left + (self.box_right - self.box_left) / 2
-        y = x * np.sin(t) + y * np.cos(t) + self.box_top + (self.box_bottom - self.box_top) - 33
-
-        print(f'arc {x_t.shape}')
+        # 解耦椭圆的绘画，为得到x,y先记录参数
+        self.oval_params = (p[0], p[1], a, b, t, 0)
+        self.oval_angle = 0
+        x, y = self.get_oval_xy()
 
         oval = np.array(list(zip(x, y)))
-        print(f'oval {oval.shape}')
+        # print(f'oval {oval.shape}')
         adjust_value_y = self.adjust_y(x_t, oval)
+
+        self.oval_params = (p[0], p[1], a, b, t, adjust_value_y)
         
         print(f'adjust y value {adjust_value_y}')
         y -= adjust_value_y
+        radis = 3
+        self.oval_pts = list()
         for i in range(200):
-            self.image_canvas.create_oval(x[i]-3, y[i]-3, x[i]+3, y[i]+3, fill="green")  
+            oval_pt = self.image_canvas.create_oval(x[i]-radis, y[i]-radis, x[i]+radis, y[i]+radis, fill="green")  
+            self.oval_pts.append(oval_pt)
         
-        self.image_canvas.create_oval(self.box_left-5, self.box_top-5, self.box_left+5, self.box_top+5, fill="red")
+        self.oval = (x, y)
+        
+        # self.image_canvas.create_oval(self.box_left-5, self.box_top-5, self.box_left+5, self.box_top+5, fill="red")
 
     def adjust_y(self, arc, ellipse):
         # 对获得的椭圆进行微调，与图像拟合（为什么会拟合不上）
@@ -417,6 +429,64 @@ class ImageAnnotator:
 
         min_y_distances = np.array(min_y_distances)
         return np.mean(min_y_distances)
+    
+    def get_oval_xy(self):
+        print(f'get oval xy')
+        p0, p1, a, b, t, adjust_y = self.oval_params
+        theta = np.linspace(0, 2*np.pi, 200)
+        x = p0 + a * np.cos(theta) 
+        y = p1 + b * np.sin(theta) 
+        x_center = np.mean(x)
+        y_center = np.mean(y)
+        x -= x_center
+        y -= y_center
+        x = x * np.cos(t) - y * np.sin(t) + self.box_left + (self.box_right - self.box_left) / 2 + x_center
+        y = x * np.sin(t) + y * np.cos(t) + self.box_top + (self.box_bottom - self.box_top) - 33 - adjust_y + y_center
+        return x, y
+    
+    
+    def redraw(self):
+        input = self.deta.get()
+        p0, p1, a, b, t = input.split()
+        deta = (float(p0), float(p1), float(a), float(b), float(t))
+        p0, p1, a, b, t = deta
+        p0_, p1_, a_, b_, t_, adjust_y = self.oval_params
+        self.oval_params = (p0_+p0, p1_+p1, a_+a,b_+b, t_, adjust_y)
+        self.redraw_oval(deta)
+    
+    def redraw_oval(self, deta=(0, 0, 0, 0, 90)):
+        print(f'redraw oval params {self.oval_params}')
+        x, y = self.oval
+        # deta是变化量，包括(x轴，y轴，角度)
+        for i in self.oval_pts:
+            self.image_canvas.delete(i)
+        self.oval_pts = list()
+        # reget point of oval,只调整a, b
+        p0, p1, a, b, t = deta
+        self.oval_angle += t
+        x, y = self.get_oval_xy()
+        # 角度也必须在上面改变！ 
+
+        # x += p0
+        # y += p1
+        t = np.radians(self.oval_angle)
+        # 这里角度的变化也会带动中心的变化，所以稍微处理一下
+        x_center = np.mean(x)
+        y_center = np.mean(y)
+        x -= x_center
+        y -= y_center
+        x_f = x * np.cos(t) - y * np.sin(t)
+        y_f = x * np.sin(t) + y * np.cos(t)
+        x_f += x_center
+        y_f += y_center
+
+        x = x_f
+        y = y_f
+        self.oval = (x, y)
+        radis = 2
+        for i in range(200):
+            oval_pt = self.image_canvas.create_oval(x[i]-radis, y[i]-radis, x[i]+radis, y[i]+radis, fill="red")  
+            self.oval_pts.append(oval_pt)
 
 
 
