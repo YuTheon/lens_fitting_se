@@ -46,11 +46,11 @@ class ImageAnnotator:
         self.oval_button.pack(side=tk.LEFT, padx=10)
 
         # 创建保存按钮
-        self.save_button = tk.Button(self.frame1, text="save image", command=lambda: self.save_image)
+        self.save_button = tk.Button(self.frame1, text="save image", command=self.save_image)
         self.save_button.pack(side=tk.LEFT, padx=10)
 
         # 重画椭圆
-        self.redr_button = tk.Button(self.frame1, text="redraw oval", command=lambda: self.redraw)
+        self.redr_button = tk.Button(self.frame1, text="redraw oval", command=lambda: self.redraw())
         self.redr_button.pack(side=tk.LEFT, padx=10)
         self.label = tk.Label(self.frame1, text="Enter deta (p0, p1, a, b, t):")
         self.label.pack(side=tk.LEFT, padx=10)
@@ -63,6 +63,19 @@ class ImageAnnotator:
         self.frame2.pack()
         self.test_button = tk.Button(self.frame2, text='frame2', command=self.ciliary_start)
         self.test_button.pack(side=tk.LEFT, padx=10)
+        self.hidd_button = tk.Button(self.frame2, text='hidden c edge', command=self.hidden_ciliary_edge)
+        self.hidd_button.pack(side=tk.LEFT, padx=10)
+        self.hidd_button.bind("<ButtonPress-1>", self.ciliary_on_hold)
+        self.hidd_button.bind("<ButtonRelease-1>", self.ciliary_on_release)
+        self.show_button = tk.Button(self.frame2, text='show c edge', command=self.show_ciliary_edge)
+        self.show_button.pack(side=tk.LEFT, padx=10)
+
+        self.dist_button = tk.Button(self.frame2, text="choose dist", command=self.ciliary_start_distance)
+        self.dist_button.pack(side=tk.LEFT, padx=10)
+
+        self.label_dist = tk.Label(self.frame2, text="distance")
+        self.label_dist.pack(side=tk.LEFT, padx=10)
+        
 
 
         self.image_path = None
@@ -76,6 +89,8 @@ class ImageAnnotator:
         self.ciliary_flag = False
         self.ciliary_draw_box = False
         self.ciliary_annotated_pts = list()
+        self.ciliary_distance = False
+        self.ciliary_dist_lines = list()
 
         self.image_canvas.bind("<Button-1>", self.annotate_point)
         self.image_canvas.bind("<MouseWheel>", self.zoom)
@@ -143,6 +158,16 @@ class ImageAnnotator:
                 if len(self.annotated_points) == 2:
                     self.ciliary_draw_box = True
                     self.draw_box_ciliary()
+            elif self.ciliary_distance:
+                x, y = event.x, event.y
+                print(f'point {x} {y}')
+                if len(self.annotated_points) == 2:
+                    messagebox.showinfo("Fail", "No exceed two points")
+                    return
+                point_id = self.image_canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill="red")
+                self.annotated_points.append((x, y, point_id))
+                if len(self.annotated_points) == 2:
+                    self.ciliary_pick_frag()
             else:
                 x, y = event.x, event.y
                 print(f'point {x} {y}')
@@ -273,10 +298,10 @@ class ImageAnnotator:
         box_right = max(x1, x2)
         box_top = min(y1, y2)
         box_bottom = max(y1, y2)
-        self.box_left = box_left
-        self.box_top = box_top
-        self.box_bottom = box_bottom
-        self.box_right = box_right
+        self.ciliary_box_left = box_left
+        self.ciliary_box_top = box_top
+        self.ciliary_box_bottom = box_bottom
+        self.ciliary_box_right = box_right
         image_toCrop = cv2.imdecode(np.fromfile(self.image_path, dtype=np.uint8), -1)
         image = image_toCrop[box_top:box_bottom, box_left:box_right]
         self.crop_img = copy.deepcopy(image)
@@ -291,19 +316,23 @@ class ImageAnnotator:
         for i in range(w):
             for j in range(h - 1, 0, -1):
                 if image[j, i, 0] > 10:
-                    self.ciliary_edge_pts.append((i+self.canvas_x + self.box_left, j+self.canvas_y + self.box_top))
-                    self.ciliary_edge_pts_bottom.append((i+self.canvas_x + self.box_left, j+self.canvas_y + self.box_top))
+                    self.ciliary_edge_pts.append((i+self.canvas_x + self.ciliary_box_left, 
+                                                  j+self.canvas_y + self.ciliary_box_top))
+                    self.ciliary_edge_pts_bottom.append((i+self.canvas_x + self.ciliary_box_left, 
+                                                         j+self.canvas_y + self.ciliary_box_top))
                     break
 
         y_top = min(i[1] for i in self.ciliary_edge_pts_bottom)
 
         for i in range(h):
-            if i + self.canvas_y + self.box_top > y_top:
+            if i + self.canvas_y + self.ciliary_box_top > y_top:
                 break
             for j in range(w-1, 0, -1):
                 if image[i, j, 0] > 30:
-                    self.ciliary_edge_pts.append((j+self.canvas_x + self.box_left, i+self.canvas_y + self.box_top))
-                    self.ciliary_edge_pts_right.append((j+self.canvas_x + self.box_left, i+self.canvas_y + self.box_top))
+                    self.ciliary_edge_pts.append((j+self.canvas_x + self.ciliary_box_left, 
+                                                  i+self.canvas_y + self.ciliary_box_top))
+                    self.ciliary_edge_pts_right.append((j+self.canvas_x + self.ciliary_box_left, 
+                                                        i+self.canvas_y + self.ciliary_box_top))
                     break
 
         # 创建Image对象
@@ -316,21 +345,86 @@ class ImageAnnotator:
         # 绘制红色点
         radius = 2
         # 注意bottom在下面，top在上面，y轴从上到下是正的
-        # print(f'ciliary edge pts {self.ciliary_edge_pts}')
-        # self.image_canvas.create_oval(self.canvas_x + self.box_left - radius, self.canvas_y + self.box_bottom - radius, 
-        #                                 self.canvas_x + self.box_left + radius, self.canvas_y + self.box_bottom + radius, fill='red')
-        # self.image_canvas.create_oval(self.canvas_x + self.box_left - radius, self.canvas_y + self.box_top - radius, 
-        #                                 self.canvas_x + self.box_left + radius, self.canvas_y + self.box_top + radius, fill='yellow')
-        # for i in self.ciliary_edge_pts:
-        #     self.image_canvas.create_oval(i[0] - radius, i[1] - radius, 
-        #                                 i[0] + radius, i[1] + radius, fill='red')
-
         # 在绘制红色点后，绘制连接这些点的线
-        self.image_canvas.create_line(self.ciliary_edge_pts_bottom, 
-                                    fill='green')
-        self.image_canvas.create_line(self.ciliary_edge_pts_right, 
-                                    fill='green')
-         
+        self.ciliary_edge_line = list()
+        self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_bottom, 
+                                    fill='green'))
+        self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_right, 
+                                    fill='green'))
+        
+    def hidden_ciliary_edge(self):
+        for i in self.ciliary_edge_line:
+            self.image_canvas.delete(i)
+        self.ciliary_edge_line = list()
+        
+    
+    def show_ciliary_edge(self):
+        self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_bottom, 
+                                    fill='green'))
+        self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_right, 
+                                    fill='green'))
+    
+    def ciliary_on_hold(self, event):
+        # print(f'button_hold')
+        self.hidden_ciliary_edge()
+
+    def ciliary_on_release(self, event):
+        # print(f'button_release event {event}')
+        self.show_ciliary_edge()
+        
+        # pt = (self.canvas_x+100, self.canvas_y+100)
+        # oval_pt = self.image_canvas.create_oval(pt[0]-10, pt[1]-10, pt[0]+10, pt[1]+10, fill="red")
+        # self.ciliary_edge_line.append(oval_pt)
+        # self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_bottom, 
+        #                             fill='green'))
+        # self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_right, 
+        #                             fill='green'))
+        # self.show_ciliary_edge()
+
+    def ciliary_pick_frag(self):
+        # 点击选择两个点之后，选中一段，然后计算这段和椭圆的平均距离，
+        x1, y1, _ = self.annotated_points[0]
+        x2, y2, _ = self.annotated_points[1]
+        self.image_canvas.create_rectangle(x1, y1, x2, y2, outline="blue")
+        box_left = min(x1, x2)
+        box_right = max(x1, x2)
+        box_top = min(y1, y2)
+        box_bottom = max(y1, y2)
+        pts = list()
+        radis = 2
+        for i in self.ciliary_edge_pts_bottom:
+            if i[0] < box_right:
+                if i[0] > box_left:
+                    pts.append(i)
+                    self.image_canvas.create_oval(i[0]-radis, i[1]-radis, i[0]+radis, i[1]+radis, fill='yellow')
+            else:
+                break
+
+        # 将之前的连线去除
+        for i in self.ciliary_dist_lines:
+            self.image_canvas.delete(i)
+        # 计算这段距离，然后config在label上
+        x, y = self.oval
+        oval_pts = np.array(list(zip(x, y)))
+        min_dis = list()
+        for c_pt in pts:
+            # cpt = np.array([c_pt[0], c_pt[1]])
+            # cpt = cpt.reshape(2, 1)
+            # distances = np.sum(np.linalg.norm(oval_pts - cpt, axis=0), axis=0)
+            distances = np.array([((op[0]-c_pt[0])**2+(op[1]-c_pt[1])**2)**0.5 for op in oval_pts])
+            dis = np.min(distances)
+            min_dis.append(dis)
+            # print(f'oval_pts shape {oval_pts.shape} dis {distances.shape}')
+            # 找到最小距离的索引
+            nearest_point_index = np.argmin(distances)
+            # 最近的点
+            nearest_point = oval_pts[nearest_point_index, :]
+            # print(f'nearest point {nearest_point}')
+            self.ciliary_dist_lines.append(
+                self.image_canvas.create_line([c_pt, (nearest_point[0], nearest_point[1])], fill='yellow'))
+        # print(f'min dis {min_dis} type {type(min_dis[0])}')
+        self.label_dist.config(text=f'aveg dist {sum(min_dis) / len(min_dis) :.3}')
+
 
 
 
@@ -623,9 +717,13 @@ class ImageAnnotator:
         y = y_f
         self.oval = (x, y)
         radis = 2
-        for i in range(200):
-            oval_pt = self.image_canvas.create_oval(x[i]-radis, y[i]-radis, x[i]+radis, y[i]+radis, fill="red")  
-            self.oval_pts.append(oval_pt)
+        # for i in range(200):
+        #     oval_pt = self.image_canvas.create_oval(x[i]-radis, y[i]-radis, x[i]+radis, y[i]+radis, fill="red")  
+        #     self.oval_pts.append(oval_pt)
+        
+        pts = list(zip(x, y))
+        oval_line = self.image_canvas.create_line(pts, fill='green')
+        self.oval_pts.append(oval_line)
 
     """
     计划对睫状突进行分割，另外就是距离计算【感觉这个软件设计的也真是困难】
@@ -635,6 +733,12 @@ class ImageAnnotator:
         # 主要目的还是分割出边缘，现在还是框选，之后也许用别的办法
         self.ciliary_flag = True
         self.find_edge_flag = False
+        self.annotated_points = list()
+
+    def ciliary_start_distance(self):
+        self.ciliary_flag = False
+        self.find_edge_flag = False
+        self.ciliary_distance = True
         self.annotated_points = list()
 
 if __name__ == "__main__":
