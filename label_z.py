@@ -112,6 +112,7 @@ class ImageAnnotator:
         self.annotated_points = list()
         self.ciliary_flag = False
         self.ciliary_draw_box = False
+        self.ciliary_distance = False
         self.ciliary_annotated_pts = list()
         self.image_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.png *.jpeg *.bmp")])
         if self.image_path:
