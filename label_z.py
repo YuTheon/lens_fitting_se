@@ -368,11 +368,16 @@ class ImageAnnotator:
         radius = 2
         # 将 ciliary_edge 的点用曲线平滑
         edge_bottom = np.array(self.ciliary_edge_pts_bottom)
-        print(f'edge bottom {edge_bottom.shape}')
-        re = self.bezier_curve(edge_bottom, edge_bottom.shape[0])
-        re.reshape(-1, 2)
-        print(f're {re.shape}')
-        self.ciliary_edge_pts_bottom = list(self.bezier_curve(edge_bottom, edge_bottom.shape[0]).reshape(edge_bottom.shape[0], 2))
+        edge_right = np.array(self.ciliary_edge_pts_right)
+        # 经常忘，np处理函数不会对原array处理，会返回一个新的，需要接收
+        smooth_edge_b = self.bezier_curve(edge_bottom, edge_bottom.shape[0])
+        smooth_edge_b = smooth_edge_b.squeeze(axis=1)
+        smooth_edge_r = self.bezier_curve(edge_right, edge_right.shape[0])
+        smooth_edge_r = smooth_edge_r.reshape(-1, 2)
+        self.ciliary_edge_pts_bottom = smooth_edge_b.tolist()
+        self.ciliary_edge_pts_right = smooth_edge_r.tolist()
+
+        # print(f'edge bottom {self.ciliary_edge_pts_bottom}')
         # 注意bottom在下面，top在上面，y轴从上到下是正的
         # 在绘制红色点后，绘制连接这些点的线
         self.ciliary_edge_line = list()
@@ -421,13 +426,14 @@ class ImageAnnotator:
         box_bottom = max(y1, y2)
         pts = list()
         radis = 2
+
         for i in self.ciliary_edge_pts_bottom:
             if i[0] < box_right:
                 if i[0] > box_left:
                     pts.append(i)
                     self.image_canvas.create_oval(i[0]-radis, i[1]-radis, i[0]+radis, i[1]+radis, fill='yellow')
-            else:
-                break
+                else:
+                    break
 
         # 将之前的连线去除
         for i in self.ciliary_dist_lines:
