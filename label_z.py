@@ -75,6 +75,14 @@ class ImageAnnotator:
 
         self.label_dist = tk.Label(self.frame2, text="distance")
         self.label_dist.pack(side=tk.LEFT, padx=10)
+
+        self.brit_button = tk.Button(self.frame2, text='bright', command=self.load_binary_image)
+        self.brit_button.pack(side=tk.LEFT, padx=10)
+        # Create an Entry widget for user input
+        self.pix_val = tk.Entry(self.frame2)
+        self.pix_val.pack(side=tk.LEFT, padx=10)
+        self.path_label = tk.Label(self.frame2, text="path name")
+        self.path_label.pack(side=tk.LEFT, padx=10)
         
 
 
@@ -108,6 +116,7 @@ class ImageAnnotator:
         self.image_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.jpg *.png *.jpeg *.bmp")])
         if self.image_path:
             self.load_image()
+            self.path_label.config(text=f'path {self.image_path}')
 
     def load_image(self):
         image = Image.open(self.image_path)
@@ -119,6 +128,19 @@ class ImageAnnotator:
         image = image.resize((canvas_width, canvas_height), Image.ANTIALIAS)
         self.photo = ImageTk.PhotoImage(image)
         self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
+    
+    def load_binary_image(self):
+        image = Image.open(self.image_path)
+        img_array = np.array(image)
+        # 将所有不为0的像素值修改为255
+        img_bo = img_array > int(self.pix_val.get())
+        img_array[img_bo] = 255
+        # 将numpy数组转换回图像
+        img = Image.fromarray(img_array)
+        self.photo = ImageTk.PhotoImage(img)
+        self.image_canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
+    
+
 
     def save_image(self):
         # 获取画布上的内容
@@ -344,13 +366,20 @@ class ImageAnnotator:
         
         # 绘制红色点
         radius = 2
+        # 将 ciliary_edge 的点用曲线平滑
+        edge_bottom = np.array(self.ciliary_edge_pts_bottom)
+        print(f'edge bottom {edge_bottom.shape}')
+        re = self.bezier_curve(edge_bottom, edge_bottom.shape[0])
+        re.reshape(-1, 2)
+        print(f're {re.shape}')
+        self.ciliary_edge_pts_bottom = list(self.bezier_curve(edge_bottom, edge_bottom.shape[0]).reshape(edge_bottom.shape[0], 2))
         # 注意bottom在下面，top在上面，y轴从上到下是正的
         # 在绘制红色点后，绘制连接这些点的线
         self.ciliary_edge_line = list()
         self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_bottom, 
-                                    fill='green'))
+                                    fill='green', smooth=True))
         self.ciliary_edge_line.append(self.image_canvas.create_line(self.ciliary_edge_pts_right, 
-                                    fill='green'))
+                                    fill='green', smooth=True))
         
     def hidden_ciliary_edge(self):
         for i in self.ciliary_edge_line:
@@ -539,6 +568,7 @@ class ImageAnnotator:
                 selected_curve = np.concatenate((selected_curve, self.contours[cont]), axis=0)
         cont0 = selected_curve.squeeze()
         self.approx = self.bezier_curve(cont0, nTimes=100)
+        # print(f'fit curve type {type(cont0)} cont {cont0.shape}, approx {self.approx.shape}')
 
         original_image = copy.deepcopy(self.crop_img)
         cv2.drawContours(original_image, self.approx, -1, (0, 255, 0), 2)
@@ -740,6 +770,7 @@ class ImageAnnotator:
         self.find_edge_flag = False
         self.ciliary_distance = True
         self.annotated_points = list()
+
 
 if __name__ == "__main__":
     root = tk.Tk()
